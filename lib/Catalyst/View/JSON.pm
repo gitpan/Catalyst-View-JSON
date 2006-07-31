@@ -1,7 +1,7 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 use base qw( Catalyst::View );
 use Encode ();
@@ -15,6 +15,7 @@ sub new {
     my $self = $class->NEXT::new($c);
 
     for my $field (keys %$arguments) {
+        next if $field eq 'json_driver';
         if ($self->can($field)) {
             $self->$field($arguments->{$field});
         } else {
@@ -257,6 +258,35 @@ C<validate_callback_param> method in your View::JSON class.
 
 See Yahoo's nice explanation on
 L<http://developer.yahoo.net/common/json.html>
+
+=head1 INTEROPERABILITY
+
+JSON use is still developing and has not been standardized. This
+section provides some notes on various libraries.
+
+Dojo Toolkit: Setting dojo.io.bind's mimetype to 'text/json' in
+the JavaScript request will instruct dojo.io.bind to expect JSON
+data in the response body and auto-eval it. Dojo ignores the
+server response Content-Type. This works transparently with
+Catalyst::View::JSON.
+
+Prototype.js: prototype.js will auto-eval JSON data that is
+returned in the custom X-JSON header. The reason given for this is
+to allow a separate HTML fragment in the response body, however
+this of limited use because IE 6 has a max header length that will
+cause the JSON evaluation to silently fail when reached. The
+recommened approach is to use Catalyst::View::JSON which will JSON
+format all the response data and return it in the response body.
+The response body can then be evaled on the client using the
+following JavaScript:
+
+  evalJSON: function(request) {
+    try {
+      return eval('(' + request.responseText + ')');
+    } catch (e) {}
+  }
+  // elsewhere
+  var json = this.evalJSON(request);
 
 =head1 AUTHOR
 
