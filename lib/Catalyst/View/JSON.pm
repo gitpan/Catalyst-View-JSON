@@ -1,12 +1,13 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.14';
+our $VERSION = '0.15';
 
 use base qw( Catalyst::View );
 use Encode ();
 use NEXT;
 use Catalyst::Exception;
+require JSON::Any;
 
 __PACKAGE__->mk_accessors(qw( allow_callback callback_param expose_stash encoding json_dumper no_x_json_header ));
 
@@ -19,27 +20,23 @@ sub new {
         if ($self->can($field)) {
             $self->$field($arguments->{$field});
         } else {
-            $c->log->debug("Unkown config parameter '$field'");
+            $c->log->debug("Unknown config parameter '$field'");
         }
     }
 
-    my $driver = $arguments->{json_driver} || 'JSON';
-    if ($driver eq 'JSON::Syck') {
-        require JSON::Syck;
-        $self->json_dumper(sub { JSON::Syck::Dump($_[0]) });
-    } elsif ($driver eq 'JSON') {
-        require JSON::Converter;
-        my $conv   = JSON::Converter->new;
-        my $dumper = sub {
-            my $data = shift;
-            ref $data ? $conv->objToJson($data) : $conv->valueToJson($data);
-        };
-        $self->json_dumper($dumper);
-    } else {
-        Catalyst::Exception->throw("Don't know json_driver $driver");
+    my $driver = $arguments->{json_driver} || 'Syck';
+    $driver =~ s/^JSON:://; #backward compatibility
+
+    eval {
+        JSON::Any->import($driver);
+        $self->json_dumper(sub { JSON::Any->objToJson($_[0]) });
+    };
+
+    if (my $error = $@) {
+        die $error;
     }
 
-    $self;
+    return $self;
 }
 
 sub process {
@@ -246,8 +243,8 @@ L<Encode::JavaScript::UCS> to use the encoding.
 =head2 CALLBACKS
 
 By default it returns raw JSON data so your JavaScript app can deal
-with using XMLHttpRequest calls. Adding callbacks to the API gives
-more flexibility to the end users of the API: overcome the
+with using XMLHttpRequest calls. Adding callbacks (JSONP) to the API
+gives more flexibility to the end users of the API: overcome the
 cross-domain restrictions of XMLHttpRequest. It can be done by
 appending I<script> node with dynamic DOM manipulation, and associate
 callback handler to the returned data.
@@ -282,8 +279,9 @@ The valid characters you can use in the callback function are
 but you can customize the behaviour by overriding the
 C<validate_callback_param> method in your View::JSON class.
 
-See Yahoo's nice explanation on
-L<http://developer.yahoo.net/common/json.html>
+See L<http://developer.yahoo.net/common/json.html> and
+L<http://ajaxian.com/archives/jsonp-json-with-padding> for more about
+JSONP.
 
 =head1 INTEROPERABILITY
 
@@ -318,6 +316,59 @@ the response body using the following JavaScript:
   }
   // elsewhere
   var json = this.evalJSON(request);
+
+=head1 SECURITY CONSIDERATION
+
+Catalyst::View::JSON makes the data available as a (sort of)
+JavaScript to the client, so you might want to be careful about the
+security of your data.
+
+=head2 Use callbacks only for public data
+
+When you enable callbacks (JSONP) by setting C<allow_callbacks>, all
+your JSON data will be available cross-site. This means embedding
+private data of logged-in user to JSON is considered bad.
+
+  # MyApp.yaml
+  View::JSON:
+    allow_callbacks: 1
+
+  sub foo : Local {
+      my($self, $c) = @_;
+      $c->stash->{address} = $c->user->street_address; # BAD
+      $c->forward('View::JSON');
+  }
+
+If you want to enable callbacks in a controller (for public API) and
+disable in another, you need to create two different View classes,
+like MyApp::View::JSON and MyApp::View::JSONP, because
+C<allow_callbacks> is a static configuration of the View::JSON class.
+
+See L<http://ajaxian.com/archives/gmail-csrf-security-flaw> for more.
+
+=head2 Avoid valid cross-site JSON requests
+
+Even if you disable the callbacks, the nature of JavaScript still has
+a possiblity to access private JSON data cross-site, by overriding
+Array constructor C<[]>.
+
+  # MyApp.yaml
+  View::JSON:
+    expose_stash: json
+
+  sub foo : Local {
+      my($self, $c) = @_;
+      $c->stash->{json} = [ $c->user->street_address ]; # BAD
+      $c->forward('View::JSON');
+  }
+
+When you return logged-in user's private data to the response JSON,
+you might want to disable GET requests (because I<script> tag invokes
+GET requests), or include a random digest string and validate it.
+
+See
+L<http://jeremiahgrossman.blogspot.com/2006/01/advanced-web-attack-techniques-using.html>
+for more.
 
 =head1 AUTHOR
 
