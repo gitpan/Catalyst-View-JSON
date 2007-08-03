@@ -1,7 +1,7 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.18';
+our $VERSION = '0.19';
 
 use base qw( Catalyst::View );
 use Encode ();
@@ -29,7 +29,8 @@ sub new {
 
     eval {
         JSON::Any->import($driver);
-        $self->json_dumper(sub { JSON::Any->objToJson($_[0]) });
+        my $json = JSON::Any->new; # create the copy of JSON handler
+        $self->json_dumper(sub { $json->objToJson($_[0]) });
     };
 
     if (my $error = $@) {
