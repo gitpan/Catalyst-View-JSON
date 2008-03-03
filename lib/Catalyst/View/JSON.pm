@@ -1,7 +1,7 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use base qw( Catalyst::View );
 use Encode ();
@@ -420,5 +420,10 @@ Jun Kuriyama
 =head1 SEE ALSO
 
 L<Catalyst>, L<JSON>, L<Encode::JavaScript::UCS>
+
+L<http://www.prototypejs.org/learn/json>
+L<http://docs.jquery.com/Ajax/jQuery.getJSON>
+L<http://manual.dojotoolkit.org/json.html>
+L<http://developer.yahoo.com/yui/json/>
 
 =cut
