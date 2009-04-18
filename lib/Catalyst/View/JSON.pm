@@ -1,18 +1,18 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.24';
+our $VERSION = '0.25';
 
 use base qw( Catalyst::View );
 use Encode ();
-use NEXT;
+use MRO::Compat;
 use Catalyst::Exception;
 
 __PACKAGE__->mk_accessors(qw( allow_callback callback_param expose_stash encoding json_dumper no_x_json_header ));
 
 sub new {
     my($class, $c, $arguments) = @_;
-    my $self = $class->NEXT::new($c);
+    my $self = $class->next::method($c);
 
     for my $field (keys %$arguments) {
         next if $field eq 'json_driver';
@@ -234,7 +234,7 @@ C<encode_json> method in your View class.
   package MyApp::View::JSON;
   use base qw( Catalyst::View::JSON );
 
-  use JSON::XS;
+  use JSON::XS ();
 
   sub encode_json {
       my($self, $c, $data) = @_;
