@@ -5,10 +5,11 @@ author:
 build_requires:
   ExtUtils::MakeMaker: 6.42
   Test::More: 0
+  YAML: 0
 configure_requires:
   ExtUtils::MakeMaker: 6.42
 distribution_type: module
-generated_by: 'Module::Install version 0.92'
+generated_by: 'Module::Install version 0.94'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -26,4 +27,4 @@ requires:
 resources:
   license: http://dev.perl.org/licenses/
   repository: git://github.com/miyagawa/catalyst-view-json.git
-version: 0.27
+version: 0.28
