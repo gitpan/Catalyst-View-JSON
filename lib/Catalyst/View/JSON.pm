@@ -1,7 +1,7 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.29';
+our $VERSION = '0.30';
 use 5.008_001;
 
 use base qw( Catalyst::View );
@@ -9,7 +9,7 @@ use Encode ();
 use MRO::Compat;
 use Catalyst::Exception;
 
-__PACKAGE__->mk_accessors(qw( allow_callback callback_param expose_stash encoding json_driver json_dumper no_x_json_header ));
+__PACKAGE__->mk_accessors(qw( allow_callback callback_param expose_stash encoding json_dumper no_x_json_header ));
 
 sub new {
     my($class, $c, $arguments) = @_;
@@ -20,6 +20,7 @@ sub new {
         # Remove catalyst_component_name (and future Cat specific params)
         next if $field =~ /^catalyst/;
         
+        next if $field eq 'json_driver';
         if ($self->can($field)) {
             $self->$field($arguments->{$field});
         } else {
@@ -27,74 +28,64 @@ sub new {
         }
     }
 
-    return $self;
-}
-
-sub init_dumper {
-    my($self, $driver) = @_;
-
-    $driver ||= 'JSON';
+    my $driver = $arguments->{json_driver} || 'JSON';
     $driver =~ s/^JSON:://; #backward compatibility
 
-    my $json = eval {
-        require JSON::Any;
-        JSON::Any->import($driver);
-        JSON::Any->new; # create the copy of JSON handler
-    };
-
-    die $@ if not defined $json;
-
-    return sub { $json->objToJson($_[0]) };
-}
-
-sub encode_json {
-    my($self, $c, $data) = @_;
-
-    my $d = $self->json_dumper;
-
-    if (not $d) {
-        $d = $self->init_dumper($self->json_driver);
-        $self->json_dumper($d);
-    }
-
-    $d->($data);
-}
-
-sub filter_stash {
-    my($self, $c, $stash) = @_;
-
-    my $expose = $self->expose_stash
-        or return $stash;
-
-    my $reftype = ref $expose
-        or return $stash->{$expose};
-
-    my @key;
-
-    if ($reftype eq 'Regexp') {
-        @key = grep /$expose/, keys %$stash;
-    } elsif ($reftype eq 'ARRAY') {
-        my %match = map { $_ => 1 } @$expose;
-        @key = grep $match{$_[0]}, keys %$stash;
+    if (my $method = $self->can('encode_json')) {
+        $self->json_dumper( sub {
+                                my($data, $self, $c) = @_;
+                                $method->($self, $c, $data);
+                            } );
     } else {
-        $c->log->warn("expose_stash should be an array referernce or Regexp object.");
-        @key = keys %$stash;
+        eval {
+            require JSON::Any;
+            JSON::Any->import($driver);
+            my $json = JSON::Any->new; # create the copy of JSON handler
+            $self->json_dumper(sub { $json->objToJson($_[0]) });
+        };
+
+        if (my $error = $@) {
+            die $error;
+        }
     }
 
-    return { map {; $_ => $stash->{$_} } @key };
+    return $self;
 }
 
 sub process {
     my($self, $c) = @_;
 
-    my $data = $self->filter_stash($c, $c->stash);
+    # get the response data from stash
+    my $cond = sub { 1 };
+
+    my $single_key;
+    if (my $expose = $self->expose_stash) {
+        if (ref($expose) eq 'Regexp') {
+            $cond = sub { $_[0] =~ $expose };
+        } elsif (ref($expose) eq 'ARRAY') {
+            my %match = map { $_ => 1 } @$expose;
+            $cond = sub { $match{$_[0]} };
+        } elsif (!ref($expose)) {
+            $single_key = $expose;
+        } else {
+            $c->log->warn("expose_stash should be an array referernce or Regexp object.");
+        }
+    }
+
+    my $data;
+    if ($single_key) {
+        $data = $c->stash->{$single_key};
+    } else {
+        $data = { map { $cond->($_) ? ($_ => $c->stash->{$_}) : () }
+                  keys %{$c->stash} };
+    }
 
     my $cb_param = $self->allow_callback
         ? ($self->callback_param || 'callback') : undef;
     my $cb = $cb_param ? $c->req->param($cb_param) : undef;
     $self->validate_callback_param($cb) if $cb;
 
-    my $json = $self->encode_json($c, $data);
+    my $json = $self->json_dumper->($data, $self, $c); # weird order to be backward compat
 
     # When you set encoding option in View::JSON, this plugin DWIMs
     my $encoding = $self->encoding || 'utf-8';
