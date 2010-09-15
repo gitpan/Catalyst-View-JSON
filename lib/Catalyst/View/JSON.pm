@@ -1,7 +1,7 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.30';
+our $VERSION = '0.31';
 use 5.008_001;
 
 use base qw( Catalyst::View );
@@ -110,8 +110,11 @@ sub process {
     my $output;
 
     ## add UTF-8 BOM if the client is Safari
-    if (($c->req->user_agent || '') =~ m/Safari/ and $encoding eq 'utf-8') {
-        $output = "\xEF\xBB\xBF";
+    if ($encoding eq 'utf-8') {
+        my $user_agent = $c->req->user_agent || '';
+        if ($user_agent =~ m/\bSafari\b/ and $user_agent !~ m/\bChrome\b/) {
+            $output = "\xEF\xBB\xBF";
+        }
     }
 
     $output .= "$cb(" if $cb;
