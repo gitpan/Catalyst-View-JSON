@@ -1,5 +1,14 @@
 Revision history for Perl extension Catalyst::View::JSON
 
+0.34  Mon Jan 05  12:00:00 CT 2014
+        - switched from JSON::Any to JSON::MaybeXS (json_driver option no
+          longer supported)
+        - Updated some documenation to note that in 2015 perhaps some of the
+          given advice is no longer relevent.
+        - Added a new configuration option 'json_encoder_args' which lets you
+          pass arguments to JSON::MaybeXS.  Useful for when you want to have
+          more control on how your JSON serializer works.
+
 0.33  Tue Apr 12 12:20:22 PDT 2011
         - Fixed local_request monkey patching to support Catalyst >= 5.89
 

@@ -1,7 +1,7 @@
 package Catalyst::View::JSON;
 
 use strict;
-our $VERSION = '0.33';
+our $VERSION = '0.34';
 use 5.008_001;
 
 use base qw( Catalyst::View );
@@ -9,7 +9,7 @@ use Encode ();
 use MRO::Compat;
 use Catalyst::Exception;
 
-__PACKAGE__->mk_accessors(qw( allow_callback callback_param expose_stash encoding json_dumper no_x_json_header ));
+__PACKAGE__->mk_accessors(qw( allow_callback callback_param expose_stash encoding json_dumper no_x_json_header json_encoder_args ));
 
 sub new {
     my($class, $c, $arguments) = @_;
@@ -20,7 +20,9 @@ sub new {
         # Remove catalyst_component_name (and future Cat specific params)
         next if $field =~ /^catalyst/;
         
-        next if $field eq 'json_driver';
+        # no longer supported
+        warn('json_driver is no longer supported'), next if $field eq 'json_driver';
+
         if ($self->can($field)) {
             $self->$field($arguments->{$field});
         } else {
@@ -28,8 +30,11 @@ sub new {
         }
     }
 
-    my $driver = $arguments->{json_driver} || 'JSON';
-    $driver =~ s/^JSON:://; #backward compatibility
+    my $method = $self->can('encode_json');
+    $self->json_dumper( sub {
+                            my($data, $self, $c) = @_;
+                            $method->($self, $c, $data);
+                        } );
 
     if (my $method = $self->can('encode_json')) {
         $self->json_dumper( sub {
@@ -37,16 +42,10 @@ sub new {
                                 $method->($self, $c, $data);
                             } );
     } else {
-        eval {
-            require JSON::Any;
-            JSON::Any->import($driver);
-            my $json = JSON::Any->new; # create the copy of JSON handler
-            $self->json_dumper(sub { $json->objToJson($_[0]) });
-        };
-
-        if (my $error = $@) {
-            die $error;
-        }
+        require JSON::MaybeXS;
+        my %args = (utf8=>1, %{$self->json_encoder_args ||+{}});
+        my $json = JSON::MaybeXS->new(%args);
+        $self->json_dumper(sub { $json->encode($_[0]) });
     }
 
     return $self;
@@ -89,13 +88,6 @@ sub process {
 
     # When you set encoding option in View::JSON, this plugin DWIMs
     my $encoding = $self->encoding || 'utf-8';
-
-    # if you pass a valid Unicode flagged string in the stash,
-    # this view automatically transcodes to the encoding you set.
-    # Otherwise it just bypasses the stash data in JSON format
-    if ( Encode::is_utf8($json) ) {
-        $json = Encode::encode($encoding, $json);
-    }
 
     $c->res->content_type("application/json; charset=$encoding");
 
@@ -210,14 +202,6 @@ instead of the whole object (hashref in perl). This option will be
 useful when you share the method with different views (e.g. TT) and
 don't want to expose non-irrelevant stash variables as in JSON.
 
-=item json_driver
-
-  json_driver: JSON::Syck
-
-By default this plugin uses JSON to encode the object, but you can
-switch to the other drivers like JSON::Syck, whichever JSON::Any
-supports.
-
 =item no_x_json_header
 
   no_x_json_header: 1
@@ -226,29 +210,61 @@ By default this plugin sets X-JSON header if the requested client is a
 Prototype.js with X-JSON support. By setting 1, you can opt-out this
 behavior so that you can do eval() by your own. Defaults to 0.
 
+=item json_encoder_args
+
+An optional hashref that supplies arguments to L<JSON::MaybeXS> used when creating
+a new object.
+
 =back
 
 =head1 OVERRIDING JSON ENCODER
 
-By default it uses JSON::Any to serialize perl data strucuture into
+By default it uses L<JSON::MaybeXS::encode_json> to serialize perl data structure into
 JSON data format. If you want to avoid this and encode with your own
-encoder (like passing options to JSON::XS etc.), you can implement
-C<encode_json> method in your View class.
+encoder (like passing different options to L<JSON::MaybeXS> etc.), you can implement
+the C<encode_json> method in your View class.
 
   package MyApp::View::JSON;
   use base qw( Catalyst::View::JSON );
 
-  use JSON::XS ();
+  use JSON::MaybeXS ();
 
   sub encode_json {
       my($self, $c, $data) = @_;
-      my $encoder = JSON::XS->new->ascii->pretty->allow_nonref;
+      my $encoder = JSON::MaybeXS->new->(ascii => 1, pretty => 1, allow_nonref => 1);
       $encoder->encode($data);
   }
 
   1;
 
 =head1 ENCODINGS
+
+B<NOTE> Starting in release v5.90080 L<Catalyst> encodes all text
+like body returns as UTF8.  It however ignores content types like
+application/json and assumes that a correct JSON serializer is
+doing what it is supposed to do, which is encode UTF8 automatically.
+In general this is what this view does so you shoulding need to
+mess with the encoding flag here unless you have some odd case.
+
+Also, the comment aboe regard 'browser gotcha's' was written a
+number of years ago and I can't say one way or another if those
+gotchas continue to be common in the wild.
+
+B<NOTE> Setting this configuation has no bearing on how the actual
+serialized string is encoded.  This ONLY sets the content type
+header in your response.  By default we set the 'utf8' flag on
+L<JSON::MaybeXS> so that the string generated and set to your response
+body is proper UTF8 octets that can be transmitted over HTTP.  If
+you are planning to do some alternative encoding you should turn off
+this default via the C<json_encoder_args>:
+
+    MyApp::View::JSON->config(
+      json_encoder_args => +{utf8=>0} );
+
+B<NOTE>In 2015 the use of UTF8 as encoding is widely standard so it
+is very likely you should need to do nothing to get the correct
+encoding.  The following documention will remain for historical
+value and backcompat needs.
 
 Due to the browser gotchas like those of Safari and Opera, sometimes
 you have to specify a valid charset value in the response's
@@ -331,12 +347,12 @@ returned in the custom X-JSON header. The reason given for this is
 to allow a separate HTML fragment in the response body, however
 this of limited use because IE 6 has a max header length that will
 cause the JSON evaluation to silently fail when reached. The
-recommened approach is to use Catalyst::View::JSON which will JSON
+recommend approach is to use Catalyst::View::JSON which will JSON
 format all the response data and return it in the response body.
 
 In at least prototype 1.5.0 rc0 and above, prototype.js will send the
 X-Prototype-Version header. If this is encountered, a JavaScript eval
-will be returned in the X-JSON resonse header to automatically eval
+will be returned in the X-JSON response header to automatically eval
 the response body, unless you set I<no_x_json_header> to 1. If your
 version of prototype does not send this header, you can manually eval
 the response body using the following JavaScript:
@@ -349,6 +365,10 @@ the response body using the following JavaScript:
   // elsewhere
   var json = this.evalJSON(request);
 
+B<NOTE> The above comments were written a number of years ago and
+I would take then with a grain of salt so to speak.  For now I will
+leave them in place but not sure they are meaningful in 2015.
+
 =head1 SECURITY CONSIDERATION
 
 Catalyst::View::JSON makes the data available as a (sort of)
@@ -357,13 +377,13 @@ security of your data.
 
 =head2 Use callbacks only for public data
 
-When you enable callbacks (JSONP) by setting C<allow_callbacks>, all
+When you enable callbacks (JSONP) by setting C<allow_callback>, all
 your JSON data will be available cross-site. This means embedding
 private data of logged-in user to JSON is considered bad.
 
   # MyApp.yaml
   View::JSON:
-    allow_callbacks: 1
+    allow_callback: 1
 
   sub foo : Local {
       my($self, $c) = @_;
@@ -374,14 +394,14 @@ private data of logged-in user to JSON is considered bad.
 If you want to enable callbacks in a controller (for public API) and
 disable in another, you need to create two different View classes,
 like MyApp::View::JSON and MyApp::View::JSONP, because
-C<allow_callbacks> is a static configuration of the View::JSON class.
+C<allow_callback> is a static configuration of the View::JSON class.
 
 See L<http://ajaxian.com/archives/gmail-csrf-security-flaw> for more.
 
 =head2 Avoid valid cross-site JSON requests
 
 Even if you disable the callbacks, the nature of JavaScript still has
-a possiblity to access private JSON data cross-site, by overriding
+a possibility to access private JSON data cross-site, by overriding
 Array constructor C<[]>.
 
   # MyApp.yaml
@@ -424,7 +444,7 @@ Tomas Doran
 
 =head1 SEE ALSO
 
-L<Catalyst>, L<JSON>, L<Encode::JavaScript::UCS>
+L<Catalyst>, L<JSON::MaybeXS>, L<Encode::JavaScript::UCS>
 
 L<http://www.prototypejs.org/learn/json>
 L<http://docs.jquery.com/Ajax/jQuery.getJSON>

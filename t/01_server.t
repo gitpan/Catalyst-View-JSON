@@ -7,11 +7,7 @@ use lib "$FindBin::Bin/lib";
 use Encode;
 use Test::More;
 use Catalyst::Test 'TestApp';
-
-eval "use JSON 2.04";
-if ($@) {
-    plan skip_all => "JSON 2.04 is needed for testing";
-}
+use JSON::MaybeXS 1.003000 ':legacy';
 
 plan tests => 40;
 
@@ -55,7 +51,7 @@ my $entrypoint = "http://localhost/foo";
     is( $response->code, 200, 'Response Code' );
     is_deeply( [ $response->content_type ], [ 'application/json', 'charset=utf-8' ] );
 
-    my $data = JSON::from_json($response->content);
+    my $data = from_json($response->content);
     is $data->{json_foo}, "bar";
     is_deeply $data->{json_baz}, [ 1, 2, 3 ];
     ok ! $data->{foo}, "doesn't return stash that doesn't match json_";
@@ -69,7 +65,7 @@ my $entrypoint = "http://localhost/foo";
     is( $response->code, 200, 'Response Code' );
     is_deeply( [ $response->content_type ], [ 'application/json', 'charset=utf-8' ] );
 
-    my $data = JSON::from_json($response->content);
+    my $data = from_json($response->content);
     is_deeply( $data, [1, 2, 3] );
 }
 
@@ -84,7 +80,7 @@ my $entrypoint = "http://localhost/foo";
     my $body = $response->content;
     ok $body =~ s/^foobar\((.*?)\);$/$1/sg, "wrapped in a callback";
 
-    my $data = JSON::from_json($body);
+    my $data = from_json($body);
     is $data->{json_foo}, "bar";
     is_deeply $data->{json_baz}, [ 1, 2, 3 ];
     ok ! $data->{foo}, "doesn't return stash that doesn't match json_";
@@ -94,10 +90,11 @@ my $entrypoint = "http://localhost/foo";
     my $request = HTTP::Request->new( GET => $entrypoint . "?cb=foobar%28" );
 
     ok( my $response = request($request), 'Request' );
-    like $response->header('X-Error'), qr/Invalid callback parameter/;
+    like $response->header('X-Error'), qr/Invalid callback parameter/,;
 }
 
 {
+  ##
     my $request = HTTP::Request->new( GET => "http://localhost/foo3" );
 
     ok( my $response = request($request), 'Request' );
@@ -153,7 +150,7 @@ my $entrypoint = "http://localhost/foo";
     my $request = HTTP::Request->new( GET => "http://localhost/foo6" );
 
     ok( my $response = request($request), 'Request' );
-    my $data = JSON::from_json($response->content);
+    my $data = from_json($response->content);
     is $data->{foo}, "fake";
 }
 
