@@ -1,5 +1,10 @@
 Revision history for Perl extension Catalyst::View::JSON
 
+0.35  Wed Jan 07  12:00:00 CT 2014
+        - Specify a version of JSON::MaybXS in the Makefile to close a test
+          failure (test case requires version '1.003000' so we made that the
+          required version).
+
 0.34  Mon Jan 05  12:00:00 CT 2014
         - switched from JSON::Any to JSON::MaybeXS (json_driver option no
           longer supported)
